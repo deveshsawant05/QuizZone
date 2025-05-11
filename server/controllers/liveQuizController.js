@@ -95,11 +95,11 @@ exports.getLiveQuiz = async (req, res, next) => {
     const liveQuiz = await LiveQuiz.findById(req.params.id);
     
     if (!liveQuiz) {
-      return next(new ErrorResponse(`Live quiz not found with id of ${req.params.id}`, 404));
+      return next(new ErrorResponse(`Resource not found`, 404));
     }
     
     // Make sure user is the host or admin
-    if (liveQuiz.host.toString() !== req.user.id && req.user.role !== 'admin') {
+    if (liveQuiz.host._id.toString() !== req.user.id && req.user.role !== 'admin') {
       return next(new ErrorResponse('Not authorized to access this live quiz session', 403));
     }
     
@@ -160,11 +160,11 @@ exports.updateLiveQuizSettings = async (req, res, next) => {
     let liveQuiz = await LiveQuiz.findById(req.params.id);
     
     if (!liveQuiz) {
-      return next(new ErrorResponse(`Live quiz not found with id of ${req.params.id}`, 404));
+      return next(new ErrorResponse(`Resource not found`, 404));
     }
     
     // Make sure user is the host or admin
-    if (liveQuiz.host.toString() !== req.user.id && req.user.role !== 'admin') {
+    if (liveQuiz.host._id.toString() !== req.user.id && req.user.role !== 'admin') {
       return next(new ErrorResponse('Not authorized to update this live quiz session', 403));
     }
     
@@ -206,11 +206,11 @@ exports.endLiveQuiz = async (req, res, next) => {
     let liveQuiz = await LiveQuiz.findById(req.params.id);
     
     if (!liveQuiz) {
-      return next(new ErrorResponse(`Live quiz not found with id of ${req.params.id}`, 404));
+      return next(new ErrorResponse(`Resource not found`, 404));
     }
     
     // Make sure user is the host or admin
-    if (liveQuiz.host.toString() !== req.user.id && req.user.role !== 'admin') {
+    if (liveQuiz.host._id.toString() !== req.user.id && req.user.role !== 'admin') {
       return next(new ErrorResponse('Not authorized to end this live quiz session', 403));
     }
     
@@ -248,12 +248,17 @@ exports.getLiveQuizResults = async (req, res, next) => {
     const liveQuiz = await LiveQuiz.findById(req.params.id);
     
     if (!liveQuiz) {
-      return next(new ErrorResponse(`Live quiz not found with id of ${req.params.id}`, 404));
+      return next(new ErrorResponse(`Resource not found`, 404));
     }
     
     // Make sure user is the host or admin
-    if (liveQuiz.host.toString() !== req.user.id && req.user.role !== 'admin') {
+    if (liveQuiz.host._id.toString() !== req.user.id && req.user.role !== 'admin') {
       return next(new ErrorResponse('Not authorized to view results of this live quiz session', 403));
+    }
+    
+    // Check if the quiz is completed
+    if (liveQuiz.status !== 'completed') {
+      return next(new ErrorResponse('Quiz is not completed yet', 400));
     }
     
     // Calculate participant rankings

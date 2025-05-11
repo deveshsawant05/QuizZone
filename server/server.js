@@ -24,7 +24,9 @@ const quizRoutes = require('./routes/quizRoutes');
 const liveQuizRoutes = require('./routes/liveQuizRoutes');
 
 // Connect to database
-connectDB();
+if (process.env.NODE_ENV !== 'test') {
+  connectDB();
+}
 
 // Initialize Express app
 const app = express();
@@ -82,15 +84,19 @@ app.use('*', (req, res) => {
 // Set port
 const PORT = process.env.PORT || 5000;
 
-// Start server
-server.listen(PORT, () => {
-  logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
-});
+// Start server only if not in test environment
+if (process.env.NODE_ENV !== 'test') {
+  server.listen(PORT, () => {
+    logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (err) => {
-  logger.error(`Unhandled Rejection: ${err.message}`);
-  console.log(err.stack);
-  // Close server & exit process
-  server.close(() => process.exit(1));
-}); 
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (err) => {
+    logger.error(`Unhandled Rejection: ${err.message}`);
+    console.log(err.stack);
+    // Close server & exit process
+    server.close(() => process.exit(1));
+  });
+}
+
+module.exports = app; // Export for testing 

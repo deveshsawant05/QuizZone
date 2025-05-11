@@ -339,8 +339,8 @@ exports.deleteQuiz = async (req, res, next) => {
     // Delete all related attempts
     await QuizAttempt.deleteMany({ quiz: quiz._id });
     
-    // Delete the quiz
-    await quiz.remove();
+    // Delete the quiz (use findByIdAndDelete instead of remove)
+    await Quiz.findByIdAndDelete(quiz._id);
     
     logger.info(`Quiz deleted: ${req.params.id} by user: ${req.user.id}`);
     
@@ -732,9 +732,35 @@ exports.completeQuizAttempt = async (req, res, next) => {
       return next(new ErrorResponse('This quiz attempt is already completed', 400));
     }
     
-    // Mark as completed
+    // Get all questions for this quiz to calculate maxScore correctly
+    const questions = await Question.find({
+      _id: { $in: attempt.answers.map(a => a.questionId) }
+    });
+    
+    // Calculate score and maxScore
+    let totalScore = 0;
+    let maxScore = 0;
+    
+    for (const question of questions) {
+      const answer = attempt.answers.find(a => a.questionId.toString() === question._id.toString());
+      if (answer) {
+        if (answer.isCorrect) {
+          totalScore += question.points;
+        }
+        maxScore += question.points;
+      }
+    }
+    
+    // Mark as completed and update scores
     attempt.completed = true;
     attempt.completedAt = new Date();
+    attempt.score = totalScore;
+    attempt.maxScore = maxScore;
+    attempt.percentageScore = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+    
+    // Check if passed based on quiz settings
+    const quiz = await Quiz.findById(attempt.quiz);
+    attempt.passed = attempt.percentageScore >= quiz.settings.passingScore;
     
     await attempt.save();
     
@@ -742,11 +768,6 @@ exports.completeQuizAttempt = async (req, res, next) => {
     await attempt.populate({
       path: 'quiz',
       select: 'title description settings'
-    });
-    
-    // Populate question details for the result
-    const questions = await Question.find({
-      _id: { $in: attempt.answers.map(a => a.questionId) }
     });
     
     // Combine answers with question details

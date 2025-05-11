@@ -208,7 +208,8 @@ exports.deleteQuestion = async (req, res, next) => {
       return next(new ErrorResponse('Not authorized to delete this question', 403));
     }
     
-    await question.remove();
+    // Use findByIdAndDelete instead of remove()
+    await Question.findByIdAndDelete(req.params.id);
     
     // Update order of remaining questions
     const remainingQuestions = await Question.find({ 
@@ -244,10 +245,10 @@ exports.deleteQuestion = async (req, res, next) => {
  */
 exports.reorderQuestions = async (req, res, next) => {
   try {
-    const { questionIds } = req.body;
+    const { questions } = req.body;
     
-    if (!questionIds || !Array.isArray(questionIds)) {
-      return next(new ErrorResponse('Please provide an array of question IDs', 400));
+    if (!questions || !Array.isArray(questions)) {
+      return next(new ErrorResponse('Please provide an array of questions with id and order', 400));
     }
     
     // Check if quiz exists and belongs to user
@@ -262,10 +263,10 @@ exports.reorderQuestions = async (req, res, next) => {
     }
     
     // Update order for each question
-    const updatePromises = questionIds.map((id, index) => 
+    const updatePromises = questions.map(question => 
       Question.findOneAndUpdate(
-        { _id: id, quizId: req.params.quizId },
-        { order: index + 1 },
+        { _id: question.id, quizId: req.params.quizId },
+        { order: question.order },
         { new: true }
       )
     );
@@ -275,12 +276,11 @@ exports.reorderQuestions = async (req, res, next) => {
     logger.info(`Questions reordered for quiz: ${req.params.quizId}`);
     
     // Get updated questions list
-    const questions = await Question.find({ quizId: req.params.quizId }).sort('order');
+    const updatedQuestions = await Question.find({ quizId: req.params.quizId }).sort('order');
     
     res.status(200).json({
       success: true,
-      message: 'Questions reordered successfully',
-      data: { questions }
+      data: { questions: updatedQuestions }
     });
     
   } catch (error) {

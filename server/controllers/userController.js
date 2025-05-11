@@ -240,8 +240,8 @@ exports.deleteAccount = async (req, res, next) => {
     // 3. Delete all user's question bank entries
     // etc.
     
-    // For now, just delete the user account
-    await user.remove();
+    // Delete the user account using findByIdAndDelete instead of remove()
+    await User.findByIdAndDelete(req.user.id);
     
     logger.info(`User account deleted: ${req.user.id}`);
     

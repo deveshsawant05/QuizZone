@@ -9,6 +9,11 @@ const logger = require('../utils/logger');
  * @returns {Function} - Express rate limiter middleware
  */
 exports.createRateLimiter = (windowMinutes = 15, maxRequests = 100, message) => {
+  // Skip rate limiting in test environment
+  if (process.env.NODE_ENV === 'test') {
+    return (req, res, next) => next();
+  }
+
   return rateLimit({
     windowMs: windowMinutes * 60 * 1000, // Convert minutes to milliseconds
     max: maxRequests, // Limit each IP to maxRequests requests per windowMs

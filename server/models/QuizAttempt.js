@@ -67,18 +67,40 @@ QuizAttemptSchema.pre('save', async function(next) {
   
   if (this.isModified('answers')) {
     let totalScore = 0;
-    let maxScore = 0;
     
+    // Calculate total score from answers
     for (const answer of this.answers) {
       if (answer.isCorrect) {
         totalScore += answer.points;
       }
-      maxScore += answer.points;
     }
     
     this.score = totalScore;
-    this.maxScore = maxScore;
-    this.percentageScore = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+    
+    // Calculate maxScore based on questions from the database
+    if (this.answers.length > 0) {
+      try {
+        const Question = mongoose.model('Question');
+        const questionIds = this.answers.map(answer => answer.questionId);
+        const questions = await Question.find({ _id: { $in: questionIds } });
+        
+        // Sum up points from all questions
+        const maxScore = questions.reduce((total, question) => total + question.points, 0);
+        this.maxScore = maxScore;
+      } catch (err) {
+        console.error('Error calculating maxScore:', err);
+        // Fallback if query fails - calculate from answers
+        let maxScoreFromAnswers = 0;
+        for (const answer of this.answers) {
+          // Get the points value directly from the answer or use a default
+          maxScoreFromAnswers += answer.points > 0 ? answer.points : 10; // Assume 10 points if not specified
+        }
+        this.maxScore = maxScoreFromAnswers;
+      }
+    }
+    
+    // Calculate percentage score
+    this.percentageScore = this.maxScore > 0 ? (this.score / this.maxScore) * 100 : 0;
     
     // Check if passed based on quiz passing score
     if (this.quiz && this.completed) {
