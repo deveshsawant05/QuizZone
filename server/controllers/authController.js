@@ -339,15 +339,17 @@ exports.resetPassword = async (req, res, next) => {
 const sendTokenResponse = (user, statusCode, res, accessToken, refreshToken) => {
   res.status(statusCode).json({
     success: true,
-    user: {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      profilePicture: user.profilePicture,
-      createdAt: user.createdAt
-    },
-    accessToken,
-    refreshToken
+    data: {
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        profilePicture: user.profilePicture,
+        createdAt: user.createdAt
+      },
+      accessToken,
+      refreshToken
+    }
   });
 }; 
