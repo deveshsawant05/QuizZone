@@ -13,6 +13,7 @@ const {
   getQuizStats,
   startQuizAttempt,
   submitQuizAnswer,
+  submitQuizAllAnswers,
   completeQuizAttempt,
   getUserAttempts,
   getQuizResults
@@ -47,11 +48,12 @@ router.delete('/:id', deleteQuiz);
 router.put('/:id/publish', publishQuiz);
 router.put('/:id/unpublish', unpublishQuiz);
 router.get('/:id/stats', getQuizStats);
-router.get('/:quizId/results/:attemptId', getQuizResults);
+router.get('/:quizId/results', getQuizResults);
 
 // Quiz attempts
 router.post('/:id/attempt', startQuizAttempt);
 router.post('/attempt/:attemptId/answer', submitQuizAnswer);
+router.post('/:id/submit', submitQuizAllAnswers);
 router.put('/attempt/:attemptId/complete', completeQuizAttempt);
 router.get('/attempts', getUserAttempts);
 

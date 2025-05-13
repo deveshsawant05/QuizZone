@@ -397,7 +397,10 @@ exports.publishQuiz = async (req, res, next) => {
     
     res.status(200).json({
       success: true,
-      data: { quiz }
+      data: { 
+        quiz,
+        shareCode: quiz.shareCode
+      }
     });
     
   } catch (error) {
@@ -449,11 +452,14 @@ exports.unpublishQuiz = async (req, res, next) => {
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  * @param {Function} next - Express next middleware function
- * @route GET /api/quizzes/code/:shareCode
+ * @route GET /api/quizzes/shared/:shareCode
  * @access Public
  */
 exports.getQuizByShareCode = async (req, res, next) => {
   try {
+    // Log the request to help with debugging
+    logger.info(`Fetching quiz with share code: ${req.params.shareCode}`);
+    
     const quiz = await Quiz.findOne({ 
       shareCode: req.params.shareCode,
       isPublished: true
@@ -463,12 +469,54 @@ exports.getQuizByShareCode = async (req, res, next) => {
     });
     
     if (!quiz) {
+      logger.warn(`No quiz found with share code: ${req.params.shareCode}`);
       return next(new ErrorResponse('Invalid or expired share code', 404));
     }
     
+    // Find questions for this quiz
+    let questions = await Question.find({ quizId: quiz._id }).sort('order');
+    
+    if (questions.length === 0) {
+      logger.warn(`No questions found for quiz with ID: ${quiz._id}`);
+      return next(new ErrorResponse('This quiz has no questions', 404));
+    }
+    
+    // If not creator and quiz is for participants, hide correct answers
+    if (!quiz.settings.showCorrectAnswers) {
+      questions = questions.map(question => {
+        const formattedQuestion = question.toObject();
+        
+        // Hide which options are correct
+        if (formattedQuestion.options) {
+          formattedQuestion.options = formattedQuestion.options.map(option => ({
+            _id: option._id,
+            text: option.text
+          }));
+        }
+        
+        // Hide explanation if not showing explanations
+        if (!quiz.settings.showExplanations) {
+          formattedQuestion.explanation = undefined;
+        }
+        
+        return formattedQuestion;
+      });
+    }
+    
+    // Randomize questions if setting is enabled
+    if (quiz.settings.randomizeQuestions) {
+      questions = shuffleArray(questions);
+    }
+    
+    // Log success
+    logger.info(`Successfully retrieved quiz with share code: ${req.params.shareCode}, found ${questions.length} questions`);
+    
     res.status(200).json({
       success: true,
-      data: { quiz }
+      data: { 
+        quiz,
+        questions
+      }
     });
     
   } catch (error) {
@@ -871,18 +919,23 @@ const shuffleArray = (array) => {
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  * @param {Function} next - Express next middleware function
- * @route GET /api/quizzes/:quizId/results/:attemptId
+ * @route GET /api/quizzes/:quizId/results
  * @access Private
  */
 exports.getQuizResults = async (req, res, next) => {
   try {
-    const { quizId, attemptId } = req.params;
+    const { quizId } = req.params;
+    const { attemptId } = req.query;
+    
+    if (!attemptId) {
+      return next(new ErrorResponse('Attempt ID is required', 400));
+    }
     
     // Find the attempt
     const attempt = await QuizAttempt.findById(attemptId)
       .populate({
         path: 'quiz',
-        select: 'title description coverImage settings'
+        select: 'title description coverImage settings shareCode'
       })
       .populate({
         path: 'user',
@@ -920,7 +973,8 @@ exports.getQuizResults = async (req, res, next) => {
       },
       quiz: {
         _id: attempt.quiz._id,
-        title: attempt.quiz.title
+        title: attempt.quiz.title,
+        shareCode: attempt.quiz.shareCode
       },
       totalScore: attempt.score,
       maxPossibleScore: attempt.maxScore,
@@ -977,4 +1031,135 @@ const getTimeTaken = (startTime, endTime) => {
   const seconds = Math.floor(diff % 60);
   
   return `${minutes}m ${seconds}s`;
+};
+
+/**
+ * Submit all answers for a quiz and complete the attempt
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next middleware function
+ * @route POST /api/quizzes/:id/submit
+ * @access Private
+ */
+exports.submitQuizAllAnswers = async (req, res, next) => {
+  try {
+    const { id: quizId } = req.params;
+    const { attemptId, answers } = req.body;
+    
+    // Validate input
+    if (!attemptId || !answers || !Array.isArray(answers) || answers.length === 0) {
+      return next(new ErrorResponse('Please provide attemptId and answers array', 400));
+    }
+    
+    logger.info(`Submitting answers for attempt: ${attemptId}, quiz: ${quizId}`);
+    
+    // Find attempt
+    const attempt = await QuizAttempt.findById(attemptId);
+    
+    if (!attempt) {
+      return next(new ErrorResponse('Quiz attempt not found', 404));
+    }
+    
+    // Make sure attempt belongs to user
+    if (attempt.user.toString() !== req.user.id) {
+      return next(new ErrorResponse('Not authorized to submit answers for this attempt', 403));
+    }
+    
+    // Check if attempt is still in progress
+    if (attempt.completed) {
+      return next(new ErrorResponse('Cannot submit answers for a completed quiz attempt', 400));
+    }
+    
+    // Verify the attempt is for the correct quiz
+    if (attempt.quiz.toString() !== quizId) {
+      return next(new ErrorResponse('Attempt does not match quiz ID', 400));
+    }
+    
+    // Get all questions for this quiz
+    const questions = await Question.find({ quizId: quizId });
+    const questionMap = questions.reduce((map, question) => {
+      map[question._id.toString()] = question;
+      return map;
+    }, {});
+    
+    // Clear any existing answers
+    attempt.answers = [];
+    
+    // Process all answers
+    for (const answer of answers) {
+      const { questionId, selectedOptionId, timeTaken = 0 } = answer;
+      
+      if (!questionId || !selectedOptionId) {
+        continue; // Skip invalid answers
+      }
+      
+      const question = questionMap[questionId];
+      
+      if (!question) {
+        logger.warn(`Question ${questionId} not found for quiz ${quizId}`);
+        continue;
+      }
+      
+      // Find selected option
+      const selectedOption = question.options.id(selectedOptionId);
+      
+      if (!selectedOption) {
+        logger.warn(`Option ${selectedOptionId} not found for question ${questionId}`);
+        continue;
+      }
+      
+      // Add answer to attempt
+      attempt.answers.push({
+        questionId,
+        selectedOptionId,
+        timeTaken: timeTaken || 0,
+        isCorrect: selectedOption.isCorrect,
+        points: selectedOption.isCorrect ? question.points : 0
+      });
+    }
+    
+    // Calculate score and maxScore
+    let totalScore = 0;
+    let maxScore = 0;
+    
+    for (const question of questions) {
+      maxScore += question.points;
+      
+      const answer = attempt.answers.find(a => a.questionId.toString() === question._id.toString());
+      if (answer && answer.isCorrect) {
+        totalScore += question.points;
+      }
+    }
+    
+    // Mark as completed and update scores
+    attempt.completed = true;
+    attempt.completedAt = new Date();
+    attempt.score = totalScore;
+    attempt.maxScore = maxScore;
+    attempt.percentageScore = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+    
+    // Check if passed based on quiz settings
+    const quiz = await Quiz.findById(quizId);
+    attempt.passed = attempt.percentageScore >= quiz.settings.passingScore;
+    
+    await attempt.save();
+    
+    logger.info(`Quiz attempt completed: ${attempt._id}, score: ${attempt.percentageScore}%`);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        attemptId: attempt._id,
+        score: attempt.score,
+        maxScore: attempt.maxScore,
+        percentageScore: attempt.percentageScore,
+        passed: attempt.passed,
+        completedAt: attempt.completedAt
+      }
+    });
+    
+  } catch (error) {
+    logger.error(`Error submitting quiz answers: ${error.message}`);
+    next(error);
+  }
 }; 

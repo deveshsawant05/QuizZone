@@ -124,20 +124,51 @@ exports.getLiveQuiz = async (req, res, next) => {
  */
 exports.getLiveQuizByCode = async (req, res, next) => {
   try {
-    const liveQuiz = await LiveQuiz.findOne({ sessionCode: req.params.sessionCode });
+    logger.info(`Fetching live quiz with code: ${req.params.sessionCode}`);
+    
+    const liveQuiz = await LiveQuiz.findOne({ 
+      sessionCode: req.params.sessionCode 
+    }).populate({
+      path: 'quiz',
+      select: 'title description settings'
+    }).populate({
+      path: 'host',
+      select: 'name profilePicture'
+    });
     
     if (!liveQuiz) {
-      return next(new ErrorResponse('Invalid session code', 404));
+      logger.warn(`No live quiz found with code: ${req.params.sessionCode}`);
+      return next(new ErrorResponse('Invalid or expired session code', 404));
     }
+    
+    // Check if the quiz is active
+    if (liveQuiz.status === 'completed') {
+      logger.warn(`Attempted to join completed live quiz: ${liveQuiz._id}`);
+      return next(new ErrorResponse('This quiz session has ended', 400));
+    }
+    
+    const participantCount = liveQuiz.participants.filter(p => p.isActive).length;
+    
+    logger.info(`Successfully retrieved live quiz with code: ${req.params.sessionCode}, participant count: ${participantCount}`);
     
     res.status(200).json({
       success: true,
       data: {
+        roomId: liveQuiz._id,
         sessionCode: liveQuiz.sessionCode,
         status: liveQuiz.status,
-        quizTitle: liveQuiz.quiz.title,
-        hostName: liveQuiz.host.name,
-        participantCount: liveQuiz.participants.filter(p => p.isActive).length
+        quiz: {
+          id: liveQuiz.quiz._id,
+          title: liveQuiz.quiz.title,
+          description: liveQuiz.quiz.description,
+          settings: liveQuiz.quiz.settings
+        },
+        host: {
+          name: liveQuiz.host.name,
+          profilePicture: liveQuiz.host.profilePicture
+        },
+        participantCount,
+        createdAt: liveQuiz.createdAt
       }
     });
     

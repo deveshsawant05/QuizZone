@@ -284,7 +284,7 @@ exports.getUserAttempts = async (req, res, next) => {
     const attempts = await QuizAttempt.find(queryObj)
       .populate({
         path: 'quiz',
-        select: 'title description coverImage'
+        select: 'title description coverImage shareCode'
       })
       .skip(startIndex)
       .limit(limit)
@@ -295,7 +295,8 @@ exports.getUserAttempts = async (req, res, next) => {
       _id: attempt._id,
       quiz: {
         _id: attempt.quiz._id,
-        title: attempt.quiz.title
+        title: attempt.quiz.title,
+        shareCode: attempt.quiz.shareCode
       },
       score: attempt.score,
       maxScore: attempt.maxScore,
